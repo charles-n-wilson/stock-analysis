@@ -2,6 +2,7 @@ import wbdata
 import yfinance as yf
 import pandas as pd
 import numpy as np
+import seaborn as sns
 from datetime import datetime
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
@@ -181,147 +182,130 @@ def perform_regression_analysis(X, y):
 
     return model, r2, scaler
 
+
 def create_visualizations(combined_data, country_data, index_name):
     """
-    Create meaningful visualizations of the relationship between variables.
-    Modified to work with percentile data for both variables.
-
-    Args:
-        combined_data (pd.DataFrame): DataFrame containing both equity and stability percentiles
-        country_data (pd.DataFrame): DataFrame containing country-level stability data
-        index_name (str): Name of the equity index being analyzed
+    Create visualizations with country-specific trend lines instead of scatter points.
     """
-    index_column = f'{index_name}_Percentile'  # Modified column name
+    # Set the style for all plots
+    sns.set_theme(style="whitegrid", font_scale=1.2)
+    plt.rcParams['figure.figsize'] = (15, 20)
 
     # Create figure with three subplots
-    fig = plt.figure(figsize=(15, 15))
-    gs = fig.add_gridspec(3, 1, height_ratios=[1, 1, 1.2])
+    fig = plt.figure()
+    gs = fig.add_gridspec(3, 1, height_ratios=[1, 1.2, 1], hspace=0.4)
+
+    # Plot 1: Time series (remains the same)
     ax1 = fig.add_subplot(gs[0])
+    index_column = f'{index_name}_Percentile'
+
+    time_series_data = pd.DataFrame({
+        'Year': combined_data['date'].tolist() + combined_data['date'].tolist(),
+        'Metric': [f'{index_name} Percentile'] * len(combined_data) + ['Political Stability'] * len(combined_data),
+        'Value': combined_data[index_column].tolist() + combined_data['Political Stability'].tolist()
+    })
+
+    sns.lineplot(data=time_series_data, x='Year', y='Value', hue='Metric',
+                 marker='o', ax=ax1, palette=['royalblue', 'crimson'])
+
+    ax1.set_title('Market Performance vs Political Stability Over Time', pad=20)
+    ax1.set_ylim(0, 100)
+    ax1.set_xlabel('Year')
+    ax1.set_ylabel('Percentile Rank')
+
+    # Plot 2: Trend lines by country
     ax2 = fig.add_subplot(gs[1])
-    ax3 = fig.add_subplot(gs[2])
-
-    # Plot 1: Time series of both percentile measures
-    ax1.plot(combined_data['date'], combined_data[index_column],
-             color='blue', label=f'{index_name} Percentile')
-    ax1.set_ylabel(f'{index_name} Percentile Rank', color='blue')
-    ax1.set_ylim(0, 100)  # Set y-axis limits for percentiles
-    ax1.xaxis.set_major_locator(plt.MaxNLocator(integer=True))
-
-    ax1_twin = ax1.twinx()
-    ax1_twin.plot(combined_data['date'], combined_data['Political Stability'],
-                  color='red', label='Political Stability Percentile')
-    ax1_twin.set_ylabel('Political Stability Percentile', color='red')
-    ax1_twin.set_ylim(0, 100)  # Set y-axis limits for percentiles
-
-    ax1.set_title(f'{index_name} and Political Stability Percentile Rankings Over Time')
-    lines1, labels1 = ax1.get_legend_handles_labels()
-    lines2, labels2 = ax1_twin.get_legend_handles_labels()
-    ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper left')
-
-    # Plot 2: Scatter plot with points for each country-year
-    # Create a color map for countries
-    countries = country_data['Country'].unique()
-    colors = plt.cm.tab10(np.linspace(0, 1, len(countries)))
-    country_colors = dict(zip(countries, colors))
 
     # Clean data for plotting
     valid_data = country_data.dropna(subset=['Political Stability', index_column])
 
-    # Plot each country's data points
-    for country in countries:
-        country_subset = valid_data[valid_data['Country'] == country]
-        if not country_subset.empty:
-            ax2.scatter(country_subset['Political Stability'],
-                        country_subset[index_column],
-                        alpha=0.6,
-                        color=country_colors[country],
-                        label=country)
+    # Create trend lines for each country
+    countries = valid_data['Country'].unique()
+    palette = sns.color_palette('deep', n_colors=len(countries))
 
-            # Add year labels for each point
-            for idx, row in country_subset.iterrows():
-                ax2.annotate(
-                    str(int(row['date'])),
-                    xy=(row['Political Stability'], row[index_column]),
-                    xytext=(5, 5),
-                    textcoords='offset points',
-                    fontsize=8,
-                    alpha=0.7
-                )
+    for idx, country in enumerate(countries):
+        country_data = valid_data[valid_data['Country'] == country]
 
-    # Add regression line for all valid data
-    try:
-        x = valid_data['Political Stability']
-        y = valid_data[index_column]
-        if len(x) > 1:  # Need at least 2 points for regression
-            coefficients = np.polyfit(x, y, 1)
-            polynomial = np.poly1d(coefficients)
-            x_range = np.linspace(x.min(), x.max(), 100)
-            ax2.plot(x_range, polynomial(x_range), "r--", alpha=0.8, label='Trend Line')
-    except Exception as e:
-        print(f"Warning: Could not create trend line due to: {e}")
+        # Add trend line with confidence interval
+        sns.regplot(
+            data=country_data,
+            x='Political Stability',
+            y=index_column,
+            scatter=False,
+            color=palette[idx],
+            label=country,
+            ax=ax2,
+            line_kws={'alpha': 0.8},
+            ci=95  # Add 95% confidence interval
+        )
 
-    ax2.set_title(f'{index_name} Index vs Political Stability by Country')
+    ax2.set_title('Market Performance vs Political Stability: Country Trends', pad=20)
     ax2.set_xlabel('Political Stability Score')
-    ax2.set_ylabel(f'{index_name} Index')
-    ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left')
+    ax2.set_ylabel('Market Performance Percentile')
+    ax2.legend(bbox_to_anchor=(1.05, 1), loc='upper left', borderaxespad=0)
 
-    # Plot 3: Country-specific correlations
-    country_correlations = []
-    for country in countries:
+    # Plot 3: Correlation heatmap (fixed version)
+    ax3 = fig.add_subplot(gs[2])
+
+    # Calculate correlations for all countries
+    correlations = []
+    for country in valid_data['Country'].unique():
         country_subset = valid_data[valid_data['Country'] == country]
-        if len(country_subset) > 1:  # Need at least 2 points for correlation
-            correlation = country_subset['Political Stability'].corr(country_subset[index_column])
-            country_correlations.append({
-                'Country': country,
-                'Correlation': correlation
-            })
+        # Ensure we have enough data points for correlation
+        if len(country_subset) >= 2:  # Need at least 2 points for correlation
+            corr = country_subset['Political Stability'].corr(country_subset[index_column])
+            # Only add if correlation is not NaN
+            if pd.notna(corr):
+                correlations.append({
+                    'Country': country,
+                    'Correlation': corr
+                })
 
-    if country_correlations:  # Only create correlation plot if we have correlations
-        corr_df = pd.DataFrame(country_correlations)
-        corr_df = corr_df.sort_values('Correlation', ascending=True)
+    # Create correlation DataFrame and sort
+    corr_df = pd.DataFrame(correlations).sort_values('Correlation', ascending=True)
 
-        bars = ax3.barh(corr_df['Country'], corr_df['Correlation'])
-        ax3.set_title('Country-Specific Correlations between Political Stability and Index')
-        ax3.set_xlabel('Correlation Coefficient')
+    # Create the bar plot
+    sns.barplot(
+        data=corr_df,
+        y='Country',
+        x='Correlation',
+        ax=ax3,
+        palette=['crimson' if x < 0 else 'royalblue' for x in corr_df['Correlation']]
+    )
 
-        # Add value labels on the bars
-        for bar in bars:
-            width = bar.get_width()
-            ax3.annotate(
-                f'{width:.2f}',
-                xy=(width, bar.get_y() + bar.get_height() / 2),
-                xytext=(5 if width >= 0 else -5, 0),
-                textcoords='offset points',
-                ha='left' if width >= 0 else 'right',
-                va='center'
-            )
-    else:
-        ax3.text(0.5, 0.5, 'Insufficient data for correlation analysis',
-                 ha='center', va='center')
+    # Add value labels
+    for i, v in enumerate(corr_df['Correlation']):
+        ax3.text(
+            v + (0.01 if v >= 0 else -0.01),
+            i,
+            f'{v:.2f}',
+            va='center',
+            ha='left' if v >= 0 else 'right'
+        )
 
+    ax3.set_title('Correlation between Market Performance and Political Stability by Country', pad=20)
+    ax3.set_xlabel('Correlation Coefficient')
+    ax3.set_ylabel('Country')
+
+    # Adjust layout and save
     plt.tight_layout()
-    plt.show()
+    plt.savefig('equity_index_vs_stability.png', dpi=300, bbox_inches='tight')
 
-    # Statistical analysis
-    if not valid_data.empty:
-        # Overall correlation
-        correlation = valid_data['Political Stability'].corr(valid_data[index_column])
-        print(f"\nAggregate Correlation Analysis:")
-        print(f"Overall correlation between Political Stability and {index_name}: {correlation:.3f}")
+    # Print statistical summary
+    print("\nStatistical Summary:")
+    print("-" * 50)
+    print("Overall Analysis:")
+    overall_corr = valid_data['Political Stability'].corr(valid_data[index_column])
+    print(f"Overall correlation: {overall_corr:.3f}")
 
-        # Country-specific analysis
-        if country_correlations:
-            print("\nCountry-Specific Analysis:")
-            print("Correlations by country (sorted by strength):")
-            for _, row in corr_df.sort_values('Correlation', ascending=False).iterrows():
-                strength = ("strong" if abs(row['Correlation']) > 0.7 else
-                            "moderate" if abs(row['Correlation']) > 0.3 else "weak")
-                direction = "positive" if row['Correlation'] > 0 else "negative"
-                print(f"- {row['Country']}: {row['Correlation']:.3f} ({strength} {direction} correlation)")
-        else:
-            print("\nInsufficient data for country-specific correlation analysis")
-    else:
-        print("\nNo valid data available for statistical analysis")
+    print("\nCountry-Specific Analysis:")
+    print("-" * 50)
+    print("Correlations by country (sorted by strength):")
+    for _, row in corr_df.sort_values('Correlation', ascending=False).iterrows():
+        strength = ("Strong" if abs(row['Correlation']) > 0.7 else
+                   "Moderate" if abs(row['Correlation']) > 0.3 else "Weak")
+        direction = "positive" if row['Correlation'] > 0 else "negative"
+        print(f"{row['Country']:<5}: {row['Correlation']:>6.3f} ({strength} {direction})")
 
 def main():
     # Configuration
