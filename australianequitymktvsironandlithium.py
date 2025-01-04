@@ -1,4 +1,12 @@
+
+
+import sys
+print("Python executable:", sys.executable)
+print("Python path:", sys.path)
+
 import yfinance as yf
+print("yfinance is successfully imported!")
+
 import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
